@@ -2,6 +2,11 @@
 """CxdElite Launcher branding script (run from repo root: python3 apply_branding.py).
 Needs: pip install pillow"""
 import os, re
+
+# ---- switches: set False to skip a phase if the build fails ----
+PHASE_GLASS_DEFAULTS = True   # Phase 1: blur/opacity defaults + glass cards
+PHASE_WALLPAPER      = True   # Phase 2: default wallpaper from logo.png on first run
+PHASE_SHAPES         = True   # Phase 3-5: rounded glass shapes on ALL screens/dialogs/buttons
 R = "ZalithLauncher/src/main/res"
 M = "ZalithLauncher/src/main"
 
@@ -34,6 +39,56 @@ CxdElite Launcher is a rebranded fork of Zalith Launcher 2
 Licensed under GPL-3.0 (see LICENSE). All original copyright notices are retained.
 Source code must remain publicly available under the same license.
 """)
+
+# ---- Phase 1: glass theme (defaults + card look) ----
+K = M + "/java/com/movtery/zalithlauncher"
+def patch(path, pairs):
+    t = open(path, encoding="utf-8").read()
+    for a, b, n in pairs:
+        assert t.count(a) == n, f"{path}: expected {n} of {a!r}, found {t.count(a)}"
+        t = t.replace(a, b)
+    open(path, "w", encoding="utf-8").write(t)
+
+if PHASE_GLASS_DEFAULTS:
+    patch(K + "/setting/AllSettings.kt", [
+        ('intSetting("launcherBackgroundOpacity", 80, 20..100)', 'intSetting("launcherBackgroundOpacity", 55, 20..100)', 1),
+        ('intSetting("backgroundBlur", 0, 0..40)', 'intSetting("backgroundBlur", 24, 0..40)', 1),
+    ])
+    patch(K + "/ui/components/BackgroundCard.kt", [
+        ("shape: Shape = CardDefaults.shape,", "shape: Shape = RoundedCornerShape(24.dp),", 2),
+        ("border: BorderStroke? = null,", "border: BorderStroke? = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),", 2),
+        ("import androidx.compose.foundation.layout.fillMaxWidth\n",
+         "import androidx.compose.foundation.layout.fillMaxWidth\nimport androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.ui.unit.dp\n", 1),
+    ])
+
+
+if PHASE_SHAPES:
+    patch(K + "/ui/theme/Theme.kt", [
+        ("import androidx.compose.material3.MotionScheme\n",
+         "import androidx.compose.material3.MotionScheme\nimport androidx.compose.material3.Shapes\nimport androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.ui.unit.dp\n", 1),
+        ("            typography = AppTypography,\n            content = content",
+         "            typography = AppTypography,\n            shapes = Shapes(\n                extraSmall = RoundedCornerShape(10.dp),\n                small = RoundedCornerShape(16.dp),\n                medium = RoundedCornerShape(22.dp),\n                large = RoundedCornerShape(28.dp),\n                extraLarge = RoundedCornerShape(36.dp)\n            ),\n            content = content", 1),
+    ])
+
+if PHASE_WALLPAPER and os.path.exists("logo.png"):
+    from PIL import Image as _I
+    os.makedirs(M + "/assets", exist_ok=True)
+    _w = _I.open("logo.png").convert("RGB")
+    _w.resize((1080, 1080)).save(M + "/assets/cxdelite_bg.jpg", "JPEG", quality=88)
+    patch(K + "/ZLApplication.kt", [
+        ("            DEVICE_ARCHITECTURE = Architecture.getDeviceArchitecture()\n",
+         "            DEVICE_ARCHITECTURE = Architecture.getDeviceArchitecture()\n"
+         "            //CxdElite: first-run default glass wallpaper\n"
+         "            runCatching {\n"
+         "                val bg = PathManager.FILE_LAUNCHER_BACKGROUND\n"
+         "                val mark = java.io.File(bg.parentFile, \".cxd_seeded\")\n"
+         "                if (!mark.exists()) {\n"
+         "                    bg.parentFile?.mkdirs()\n"
+         "                    if (!bg.exists()) assets.open(\"cxdelite_bg.jpg\").use { i -> bg.outputStream().use { o -> i.copyTo(o) } }\n"
+         "                    mark.createNewFile()\n"
+         "                }\n"
+         "            }\n", 1),
+    ])
 
 # ---- logo ----
 from PIL import Image, ImageDraw, ImageChops
