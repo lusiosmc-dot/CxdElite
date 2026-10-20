@@ -7,6 +7,8 @@ import os, re
 PHASE_GLASS_DEFAULTS = True   # Phase 1: blur/opacity defaults + glass cards
 PHASE_WALLPAPER      = True   # Phase 2: default wallpaper from logo.png on first run
 PHASE_SHAPES         = True   # Phase 3-5: rounded glass shapes on ALL screens/dialogs/buttons
+PHASE_HOME           = True   # Home: remove test warning card, fix top bar name
+PHASE_PORTRAIT       = True   # Launcher in portrait mode (game itself stays landscape)
 R = "ZalithLauncher/src/main/res"
 M = "ZalithLauncher/src/main"
 
@@ -88,6 +90,71 @@ if PHASE_WALLPAPER and os.path.exists("logo.png"):
          "                    mark.createNewFile()\n"
          "                }\n"
          "            }\n", 1),
+    ])
+
+if PHASE_HOME:
+    patch(K + "/ui/screens/content/home/HomeCards.kt", [
+        ("        if (BuildConfig.DEBUG) {\n            add(debugWarningCard())\n        }\n",
+         "        //CxdElite: test-version warning removed\n", 1),
+    ])
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("text = BuildKeys.LAUNCHER_IDENTIFIER,", "text = BuildKeys.LAUNCHER_NAME,", 1),
+    ])
+
+if PHASE_PORTRAIT:
+    # launcher screens -> portrait (VMActivity = the game, ControlEditor, ErrorActivity stay landscape)
+    patch(M + "/AndroidManifest.xml", [
+        ('            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="sensorLandscape">\n            <intent-filter>',
+         '            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="portrait">\n            <intent-filter>', 1),
+        ('            android:name=".ui.activities.MainActivity"\n            android:launchMode="singleTop"\n            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="sensorLandscape" />',
+         '            android:name=".ui.activities.MainActivity"\n            android:launchMode="singleTop"\n            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="portrait" />', 1),
+    ])
+    PORTRAIT_HOME = """            if (maxWidth < maxHeight) {
+                CompositionLocalProvider(
+                    LocalUriHandler provides object : UriHandler {
+                        override fun openUri(uri: String) {
+                            onOpenLink(uri)
+                        }
+                    }
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ContentMenu(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            isVisible = isVisible,
+                            onLaunchGame = { version ->
+                                onLaunchGame(version)
+                            },
+                            onQuickPlayServer = onQuickPlayServer,
+                            onOpenVersionSettings = navigateToVersions
+                        )
+                        ActionMenu(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(300.dp)
+                                .padding(12.dp),
+                            isVisible = isVisible,
+                            isTaller = false,
+                            dockedSide = dockedSide,
+                            onLaunchGame = onLaunchGame,
+                            swapTargetValue = 0.dp,
+                            pickUpScale = { 1f },
+                            toAccountManageScreen = toAccountManageScreen,
+                            toVersionManageScreen = toVersionManageScreen,
+                            toVersionSettingsScreen = toVersionSettingsScreen
+                        )
+                    }
+                }
+            } else {
+"""
+    patch(K + "/ui/screens/content/LauncherScreen.kt", [
+        ("import androidx.compose.foundation.layout.Row\n",
+         "import androidx.compose.foundation.layout.Row\nimport androidx.compose.foundation.layout.fillMaxWidth\nimport androidx.compose.foundation.layout.height\nimport androidx.compose.foundation.layout.padding\n", 1),
+        ("            // 内容区域\n            Row(modifier = Modifier.fillMaxSize()) {",
+         PORTRAIT_HOME + "            // 内容区域\n            Row(modifier = Modifier.fillMaxSize()) {", 1),
+        ("                        toVersionSettingsScreen = toVersionSettingsScreen\n                    )\n                }\n            }\n        }\n    }\n}\n",
+         "                        toVersionSettingsScreen = toVersionSettingsScreen\n                    )\n                }\n            }\n            }\n        }\n    }\n}\n", 1),
     ])
 
 # ---- logo ----
