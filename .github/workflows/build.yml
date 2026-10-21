@@ -57,18 +57,24 @@ jobs:
       - name: Build APK for ${{ matrix.arch }}
         run: |
           chmod +x gradlew
-          ./gradlew ZalithLauncher:assemble${{ inputs.variant }} -Darch=${{ matrix.arch }}
+          ./gradlew ZalithLauncher:assembleRelease -Darch=${{ matrix.arch }}
+
+      - name: Rename APK
+        run: |
+          cd ZalithLauncher/build/outputs/apk/release
+          f=$(ls *.apk | head -n 1)
+          mv "$f" CxDElite-Launcher.v4.7.2.apk
 
       - name: Upload Release APK for ${{ matrix.arch }}
-        if: inputs.variant == 'Release'
+        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: release apk (${{ matrix.arch }})
-          path: ZalithLauncher/build/outputs/apk/release/*.apk
+          name: CxDElite-Launcher.v4.7.2
+          path: ZalithLauncher/build/outputs/apk/release/CxDElite-Launcher.v4.7.2.apk
 
       - name: Upload Release Mapping for ${{ matrix.arch }}
-        if: inputs.variant == 'Release'
+        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
