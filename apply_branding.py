@@ -11,6 +11,10 @@ PHASE_HOME           = True   # Home: remove test warning card, fix top bar name
 PHASE_PORTRAIT       = True   # Launcher in portrait mode (game itself stays landscape)
 PHASE_PORTRAIT_FIT   = True   # Portrait: give landscape-designed screens more room + top gap
 PHASE_WIDE_CARD      = True   # Version card on home = full width (resets saved home layout once)
+PORTRAIT_DEFAULT     = False  # True = launcher starts in portrait, False = starts in landscape (rotate button works either way)
+PHASE_ROTATE_BUTTON  = True   # Rotate button in the top bar (remembers your choice)
+PHASE_SPLASH_GLASS   = True   # Wallpaper + glass on the first-run extract screen
+PHASE_MODRINTH       = True   # Default download platform = Modrinth
 PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
 PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
 PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
@@ -108,12 +112,13 @@ if PHASE_HOME:
 
 if PHASE_PORTRAIT:
     # launcher screens -> portrait (VMActivity = the game, ControlEditor, ErrorActivity stay landscape)
-    patch(M + "/AndroidManifest.xml", [
-        ('            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="sensorLandscape">\n            <intent-filter>',
-         '            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="portrait">\n            <intent-filter>', 1),
-        ('            android:name=".ui.activities.MainActivity"\n            android:launchMode="singleTop"\n            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="sensorLandscape" />',
-         '            android:name=".ui.activities.MainActivity"\n            android:launchMode="singleTop"\n            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="portrait" />', 1),
-    ])
+    if PORTRAIT_DEFAULT:
+        patch(M + "/AndroidManifest.xml", [
+            ('            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="sensorLandscape">\n            <intent-filter>',
+             '            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="portrait">\n            <intent-filter>', 1),
+            ('            android:name=".ui.activities.MainActivity"\n            android:launchMode="singleTop"\n            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="sensorLandscape" />',
+             '            android:name=".ui.activities.MainActivity"\n            android:launchMode="singleTop"\n            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"\n            android:screenOrientation="portrait" />', 1),
+        ])
     PORTRAIT_HOME = """            if (maxWidth < maxHeight) {
                 CompositionLocalProvider(
                     LocalUriHandler provides object : UriHandler {
@@ -204,6 +209,72 @@ if PHASE_WIDE_CARD:
     # new storage key -> old small saved layout is ignored, cards are re-added full width
     patch(K + "/ui/screens/content/home/HomeGridPersistence.kt", [
         ('private const val KEY_LAYOUT = "homeCardLayout"', 'private const val KEY_LAYOUT = "homeCardLayoutCxd1"', 1),
+    ])
+
+if PHASE_ROTATE_BUTTON:
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("                IconButton(\n                    onClick = openFileManager\n                ) {",
+         """                val cxdCtx = androidx.compose.ui.platform.LocalContext.current
+                IconButton(
+                    onClick = {
+                        var c: android.content.Context = cxdCtx
+                        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+                        (c as? android.app.Activity)?.let { a ->
+                            val toPortrait = a.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT
+                            a.requestedOrientation = if (toPortrait) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            a.getSharedPreferences("cxd", 0).edit().putBoolean("portrait", toPortrait).apply()
+                        }
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_mobile_rotate_filled),
+                        contentDescription = null
+                    )
+                }
+
+                IconButton(
+                    onClick = openFileManager
+                ) {""", 1),
+    ])
+    patch(K + "/ui/activities/MainActivity.kt", [
+        ("        super.onCreate(savedInstanceState)\n        //处理外部导入",
+         "        super.onCreate(savedInstanceState)\n"
+         "        //CxdElite: restore the rotate-button choice\n"
+         "        if (getSharedPreferences(\"cxd\", 0).getBoolean(\"portrait\", PORTRAIT_FLAG)) {\n"
+         "            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT\n"
+         "        } else {\n"
+         "            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE\n"
+         "        }\n"
+         "        //处理外部导入".replace("PORTRAIT_FLAG", "true" if PORTRAIT_DEFAULT else "false"), 1),
+    ])
+
+if PHASE_SPLASH_GLASS:
+    patch(K + "/ui/activities/SplashActivity.kt", [
+        ("    private val backStackViewModel: SplashBackStackViewModel by viewModels()\n",
+         "    private val backStackViewModel: SplashBackStackViewModel by viewModels()\n"
+         "    private val backgroundViewModel: com.movtery.zalithlauncher.viewmodel.BackgroundViewModel by viewModels()\n", 1),
+        ("            ZalithLauncherTheme {\n                Surface(\n                    modifier = Modifier.fillMaxSize(),\n                    color = backgroundColor(),",
+         "            ZalithLauncherTheme(backgroundViewModel = backgroundViewModel) {\n"
+         "                androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {\n"
+         "                com.movtery.zalithlauncher.ui.screens.content.elements.Background(\n"
+         "                    modifier = Modifier.fillMaxSize(),\n"
+         "                    viewModel = backgroundViewModel\n"
+         "                )\n"
+         "                Surface(\n                    modifier = Modifier.fillMaxSize(),\n                    color = androidx.compose.ui.graphics.Color.Transparent,", 1),
+        ("                        screenViewModel = backStackViewModel\n                    )\n                }\n",
+         "                        screenViewModel = backStackViewModel\n                    )\n                }\n                }\n", 1),
+    ])
+
+if PHASE_MODRINTH:
+    patch(K + "/setting/AllSettings.kt", [
+        ('enumSetting("searchModPlatform", Platform.CURSEFORGE)', 'enumSetting("searchModPlatform", Platform.MODRINTH)', 1),
+        ('enumSetting("searchModpackPlatform", Platform.CURSEFORGE)', 'enumSetting("searchModpackPlatform", Platform.MODRINTH)', 1),
+        ('enumSetting("searchResourcePackPlatform", Platform.CURSEFORGE)', 'enumSetting("searchResourcePackPlatform", Platform.MODRINTH)', 1),
+        ('enumSetting("searchShadersPlatform", Platform.CURSEFORGE)', 'enumSetting("searchShadersPlatform", Platform.MODRINTH)', 1),
+    ])
+    patch(K + "/ui/screens/content/download/assets/search/SearchIdScreen.kt", [
+        ("var platform by mutableStateOf(Platform.CURSEFORGE)", "var platform by mutableStateOf(Platform.MODRINTH)", 1),
     ])
 
 # ---- logo ----
