@@ -15,6 +15,8 @@ PORTRAIT_DEFAULT     = False  # True = launcher starts in portrait, False = star
 PHASE_ROTATE_BUTTON  = True   # Rotate button in the top bar (remembers your choice)
 PHASE_SPLASH_GLASS   = True   # Wallpaper + glass on the first-run extract screen
 PHASE_MODRINTH       = True   # Default download platform = Modrinth
+PHASE_LITE           = True   # Lite: no live blur (baked into wallpaper), much smoother on weak phones
+PHASE_RELEASE_BUILD  = True   # Release (optimized) build instead of slow debug build; signed with the repo's debug key
 PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
 PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
 PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
@@ -32,6 +34,7 @@ sub("ZalithLauncher/gradle.properties", [
     (r"(?m)^launcher_name=.*", "launcher_name=CxdEliteLauncher"),
     (r"(?m)^launcher_app_name=.*", "launcher_app_name=CxdElite Launcher"),
     (r"(?m)^launcher_short_name=.*", "launcher_short_name=CxdE"),
+    (r"(?m)^launcher_version_name=.*", "launcher_version_name=4.7.2"),
 ])
 sub("ZalithLauncher/build.gradle.kts", [
     (r"applicationId = zalithPackageName", 'applicationId = "com.cxdelite.launcher"'),
@@ -63,7 +66,7 @@ def patch(path, pairs):
 if PHASE_GLASS_DEFAULTS:
     patch(K + "/setting/AllSettings.kt", [
         ('intSetting("launcherBackgroundOpacity", 80, 20..100)', 'intSetting("launcherBackgroundOpacity", 55, 20..100)', 1),
-        ('intSetting("backgroundBlur", 0, 0..40)', 'intSetting("backgroundBlur", 24, 0..40)', 1),
+        ('intSetting("backgroundBlur", 0, 0..40)', 'intSetting("backgroundBlur", %d, 0..40)' % (0 if PHASE_LITE else 24), 1),
     ])
     patch(K + "/ui/components/BackgroundCard.kt", [
         ("shape: Shape = CardDefaults.shape,", "shape: Shape = RoundedCornerShape(24.dp),", 2),
@@ -84,18 +87,23 @@ if PHASE_SHAPES:
 if PHASE_WALLPAPER and os.path.exists("logo.png"):
     from PIL import Image as _I
     os.makedirs(M + "/assets", exist_ok=True)
+    from PIL import ImageFilter as _F
     _w = _I.open("logo.png").convert("RGB")
-    _w.resize((1080, 1080)).save(M + "/assets/cxdelite_bg.jpg", "JPEG", quality=88)
+    if PHASE_LITE:   # frosted-glass look baked into the picture = zero blur cost while running
+        _w = _w.resize((960, 960)).filter(_F.GaussianBlur(8))
+    else:
+        _w = _w.resize((1080, 1080))
+    _w.save(M + "/assets/cxdelite_bg.jpg", "JPEG", quality=88)
     patch(K + "/ZLApplication.kt", [
         ("            DEVICE_ARCHITECTURE = Architecture.getDeviceArchitecture()\n",
          "            DEVICE_ARCHITECTURE = Architecture.getDeviceArchitecture()\n"
          "            //CxdElite: first-run default glass wallpaper\n"
          "            runCatching {\n"
          "                val bg = PathManager.FILE_LAUNCHER_BACKGROUND\n"
-         "                val mark = java.io.File(bg.parentFile, \".cxd_seeded\")\n"
+         "                val mark = java.io.File(bg.parentFile, \".cxd_seeded2\")\n"
          "                if (!mark.exists()) {\n"
          "                    bg.parentFile?.mkdirs()\n"
-         "                    if (!bg.exists()) assets.open(\"cxdelite_bg.jpg\").use { i -> bg.outputStream().use { o -> i.copyTo(o) } }\n"
+         "                    assets.open(\"cxdelite_bg.jpg\").use { i -> bg.outputStream().use { o -> i.copyTo(o) } }\n"
          "                    mark.createNewFile()\n"
          "                }\n"
          "            }\n", 1),
@@ -234,6 +242,24 @@ if PHASE_ROTATE_BUTTON:
                 }
 
                 IconButton(
+                    onClick = {
+                        runCatching {
+                            cxdCtx.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("https://www.youtube.com/@hexablockyt-b1t")
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_cxd_youtube),
+                        contentDescription = null
+                    )
+                }
+
+                IconButton(
                     onClick = openFileManager
                 ) {""", 1),
     ])
@@ -276,6 +302,26 @@ if PHASE_MODRINTH:
     patch(K + "/ui/screens/content/download/assets/search/SearchIdScreen.kt", [
         ("var platform by mutableStateOf(Platform.CURSEFORGE)", "var platform by mutableStateOf(Platform.MODRINTH)", 1),
     ])
+
+if PHASE_RELEASE_BUILD:
+    patch("ZalithLauncher/build.gradle.kts", [
+        ('signingConfig = signingConfigs.getByName("releaseBuild")', 'signingConfig = signingConfigs.getByName("debugBuild")', 1),
+    ])
+
+if PHASE_ROTATE_BUTTON:
+    open(R + "/drawable/ic_cxd_youtube.xml", "w").write(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
+        '    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">\n'
+        '    <path android:fillColor="#FF000000" android:fillType="evenOdd"\n'
+        '        android:pathData="M21.6,7.2c-0.2,-0.9 -0.9,-1.5 -1.8,-1.7C18.3,5.2 12,5.2 12,5.2s-6.3,0 -7.8,0.3C3.3,5.7 2.6,6.3 2.4,7.2 2,8.7 2,12 2,12s0,3.3 0.4,4.8c0.2,0.9 0.9,1.5 1.8,1.7 1.5,0.3 7.8,0.3 7.8,0.3s6.3,0 7.8,-0.3c0.9,-0.2 1.6,-0.8 1.8,-1.7C22,15.3 22,12 22,12s0,-3.3 -0.4,-4.8zM10,15L10,9l5.2,3z"/>\n'
+        '</vector>\n')
+
+if PHASE_LITE:
+    _t = open(K + "/setting/AllSettings.kt", encoding="utf-8").read()
+    assert "TransitionAnimationType.JELLY_BOUNCE)" in _t
+    _t = _t.replace("TransitionAnimationType.JELLY_BOUNCE)", "TransitionAnimationType.SLICE_IN)")
+    open(K + "/setting/AllSettings.kt", "w", encoding="utf-8").write(_t)
 
 # ---- logo ----
 from PIL import Image, ImageDraw, ImageChops
