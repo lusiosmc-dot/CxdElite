@@ -10,6 +10,7 @@ PHASE_SHAPES         = True   # Phase 3-5: rounded glass shapes on ALL screens/d
 PHASE_HOME           = True   # Home: remove test warning card, fix top bar name
 PHASE_PORTRAIT       = True   # Launcher in portrait mode (game itself stays landscape)
 PHASE_PORTRAIT_FIT   = True   # Portrait: give landscape-designed screens more room + top gap
+PHASE_WIDE_CARD      = True   # Version card on home = full width (resets saved home layout once)
 PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
 PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
 PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
@@ -193,6 +194,16 @@ private fun PortraitFit(content: @androidx.compose.runtime.Composable () -> Unit
          "        Column(\n            modifier = Modifier\n                .fillMaxSize()\n"
          f"                .padding(top = if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {PORTRAIT_TOP_GAP}.dp else 0.dp)\n"
          "        ) {\n            TopBar(", 1),
+    ])
+
+if PHASE_WIDE_CARD:
+    patch(K + "/ui/screens/content/home/HomeCards.kt", [
+        ("    private val versionCardType = CardType(\n        typeId = VERSION_CARD_TYPE_ID,\n        defaultSpan = IntOffset(10, 6),",
+         "    private val versionCardType = CardType(\n        typeId = VERSION_CARD_TYPE_ID,\n        defaultSpan = IntOffset(1000, 6), //CxdElite: 1000 = clamped to the full grid width", 1),
+    ])
+    # new storage key -> old small saved layout is ignored, cards are re-added full width
+    patch(K + "/ui/screens/content/home/HomeGridPersistence.kt", [
+        ('private const val KEY_LAYOUT = "homeCardLayout"', 'private const val KEY_LAYOUT = "homeCardLayoutCxd1"', 1),
     ])
 
 # ---- logo ----
