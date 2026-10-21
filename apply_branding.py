@@ -9,6 +9,10 @@ PHASE_WALLPAPER      = True   # Phase 2: default wallpaper from logo.png on firs
 PHASE_SHAPES         = True   # Phase 3-5: rounded glass shapes on ALL screens/dialogs/buttons
 PHASE_HOME           = True   # Home: remove test warning card, fix top bar name
 PHASE_PORTRAIT       = True   # Launcher in portrait mode (game itself stays landscape)
+PHASE_PORTRAIT_FIT   = True   # Portrait: give landscape-designed screens more room + top gap
+PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
+PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
+PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
 R = "ZalithLauncher/src/main/res"
 M = "ZalithLauncher/src/main"
 
@@ -155,6 +159,40 @@ if PHASE_PORTRAIT:
          PORTRAIT_HOME + "            // 内容区域\n            Row(modifier = Modifier.fillMaxSize()) {", 1),
         ("                        toVersionSettingsScreen = toVersionSettingsScreen\n                    )\n                }\n            }\n        }\n    }\n}\n",
          "                        toVersionSettingsScreen = toVersionSettingsScreen\n                    )\n                }\n            }\n            }\n        }\n    }\n}\n", 1),
+    ])
+
+if PHASE_PORTRAIT_FIT:
+    patch(K + "/ui/theme/Theme.kt", [
+        ("            content = content\n        )\n",
+         "            content = { PortraitFit(content) }\n        )\n", 1),
+    ])
+    with open(K + "/ui/theme/Theme.kt", "a", encoding="utf-8") as _f:
+        _f.write(f"""
+
+/** CxdElite: in portrait, lay screens out on a wider virtual canvas (they were designed for landscape) */
+@androidx.compose.runtime.Composable
+private fun PortraitFit(content: @androidx.compose.runtime.Composable () -> Unit) {{
+    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    if (cfg.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {{
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                density = d.density * {PORTRAIT_SCALE}f,
+                fontScale = d.fontScale * ({PORTRAIT_TEXT}f / {PORTRAIT_SCALE}f)
+            )
+        ) {{ content() }}
+    }} else {{
+        content()
+    }}
+}}
+""")
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("import androidx.compose.ui.unit.dp\n",
+         "import androidx.compose.ui.unit.dp\nimport androidx.compose.foundation.layout.padding\n", 1),
+        ("        Column(\n            modifier = Modifier\n                .fillMaxSize()\n        ) {\n            TopBar(",
+         "        Column(\n            modifier = Modifier\n                .fillMaxSize()\n"
+         f"                .padding(top = if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {PORTRAIT_TOP_GAP}.dp else 0.dp)\n"
+         "        ) {\n            TopBar(", 1),
     ])
 
 # ---- logo ----
