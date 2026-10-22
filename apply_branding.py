@@ -327,34 +327,19 @@ if PHASE_LITE:
 if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
     # ---- LauncherScreen: new landscape layout (card centered in the space right of the bars) ----
     NEW_LAND = """            } else if (true) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = CXD_BARS_WIDTH),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ActionMenu(
-                        modifier = Modifier
-                            .width(360.dp)
-                            .fillMaxHeight()
-                            .padding(8.dp),
-                        isVisible = isVisible,
-                        isTaller = true,
-                        dockedSide = dockedSide,
-                        onLaunchGame = onLaunchGame,
-                        swapTargetValue = 0.dp,
-                        pickUpScale = { 1f },
-                        toAccountManageScreen = toAccountManageScreen,
-                        toVersionManageScreen = toVersionManageScreen,
-                        toVersionSettingsScreen = toVersionSettingsScreen
-                    )
-                }
+                CxdLandscapeHome(
+                    onLaunchGame = onLaunchGame,
+                    toAccountManageScreen = toAccountManageScreen,
+                    toVersionManageScreen = toVersionManageScreen,
+                    toVersionSettingsScreen = toVersionSettingsScreen
+                )
             } else {
 """
     patch(K + "/ui/screens/content/LauncherScreen.kt", [
         ("import androidx.compose.foundation.layout.Row\n",
-         "import androidx.compose.foundation.layout.Row\nimport androidx.compose.foundation.layout.fillMaxHeight\n", 1),
+         "import androidx.compose.foundation.layout.Row\nimport androidx.compose.foundation.layout.fillMaxHeight\n"
+         "import androidx.compose.foundation.gestures.awaitEachGesture\nimport androidx.compose.foundation.gestures.awaitFirstDown\n"
+         "import androidx.compose.foundation.gestures.waitForUpOrCancellation\nimport androidx.compose.ui.input.pointer.pointerInput\n", 1),
         ("            } else {\n            // 内容区域\n", NEW_LAND + "            // 内容区域\n", 1),
     ])
     with open(K + "/ui/screens/content/LauncherScreen.kt", "a", encoding="utf-8") as _f:
@@ -459,7 +444,7 @@ private fun CxdHomeBars(
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            BackgroundCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            BackgroundCard(modifier = Modifier.weight(1f).fillMaxHeight().cxdMovable("bar1")) {
                 Column(modifier = Modifier.fillMaxSize().padding(vertical = 4.dp)) {
                     CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_person_outlined), "Accounts", toAccounts)
                     CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_list_alt_check_outlined), "Versions", toVersions)
@@ -467,7 +452,7 @@ private fun CxdHomeBars(
                     CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_settings_filled), "Settings", toSettings)
                 }
             }
-            BackgroundCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            BackgroundCard(modifier = Modifier.weight(1f).fillMaxHeight().cxdMovable("bar2")) {
                 Column(modifier = Modifier.fillMaxSize().padding(vertical = 4.dp)) {
                     CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_mobile_rotate_filled), "Rotate", rotate)
                     CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_cxd_youtube), "YouTube", youtube)
@@ -510,6 +495,220 @@ private fun CxdBarItem(
             maxLines = 1,
             fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)
         )
+    }
+}
+""")
+
+if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("import com.movtery.zalithlauncher.ui.screens.NestedNavKey\n",
+         "import com.movtery.zalithlauncher.ui.screens.NestedNavKey\nimport com.movtery.zalithlauncher.ui.screens.content.cxdMovable\n", 1),
+    ])
+    # skin keeps rotating in a loop
+    patch(M + "/assets/skinview/skinview.js", [
+        ("\nsetAzimuthAndPitch(0, 10);\n",
+         "\nsetAzimuthAndPitch(0, 10);\nskinViewer.autoRotate = true;\nskinViewer.autoRotateSpeed = 0.7;\n", 1),
+    ])
+    with open(K + "/ui/screens/content/CxdHomeEdit.kt", "w", encoding="utf-8") as _f:
+        _f.write("""package com.movtery.zalithlauncher.ui.screens.content
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+
+/** CxdElite: edit mode + saved positions for the landscape home items (skin box, account card, version card, two bars) */
+object CxdHomeEdit {
+    var editing by mutableStateOf(false)
+    private val offsets = mutableStateMapOf<String, Offset>()
+    private var prefs: SharedPreferences? = null
+
+    fun init(context: Context) {
+        if (prefs != null) return
+        val p = context.applicationContext.getSharedPreferences("cxd_home", Context.MODE_PRIVATE)
+        prefs = p
+        for ((k, v) in p.all) {
+            if (k.endsWith("_x") && v is Float) {
+                val key = k.removeSuffix("_x")
+                offsets[key] = Offset(v, p.getFloat(key + "_y", 0f))
+            }
+        }
+    }
+
+    fun offsetOf(key: String): Offset = offsets[key] ?: Offset.Zero
+
+    fun move(key: String, delta: Offset) {
+        offsets[key] = offsetOf(key) + delta
+    }
+
+    fun save(key: String) {
+        val o = offsetOf(key)
+        prefs?.edit()?.putFloat(key + "_x", o.x)?.putFloat(key + "_y", o.y)?.apply()
+    }
+
+    fun reset() {
+        offsets.clear()
+        prefs?.edit()?.clear()?.apply()
+    }
+}
+
+/** Moves the item by its saved offset; in edit mode the item can be dragged (touches never reach the buttons inside) */
+@Composable
+fun Modifier.cxdMovable(key: String): Modifier {
+    val ctx = LocalContext.current
+    remember(ctx) { CxdHomeEdit.init(ctx) }
+    val editing = CxdHomeEdit.editing
+    val base = this.offset {
+        val o = CxdHomeEdit.offsetOf(key)
+        IntOffset(o.x.roundToInt(), o.y.roundToInt())
+    }
+    if (!editing) return base
+    return base
+        .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
+        .pointerInput(key) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                down.consume()
+                val id = down.id
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == id } ?: break
+                    if (!change.pressed) {
+                        CxdHomeEdit.save(key)
+                        break
+                    }
+                    val d = change.positionChange()
+                    if (d != Offset.Zero) CxdHomeEdit.move(key, d)
+                    change.consume()
+                }
+            }
+        }
+}
+""")
+    with open(K + "/ui/screens/content/LauncherScreen.kt", "a", encoding="utf-8") as _f:
+        _f.write("""
+
+/** CxdElite: landscape home. Skin box + account card + version card stick to the right edge.
+ *  Hold an empty spot for 2 seconds -> edit mode (drag any item, positions are saved). */
+@Composable
+private fun CxdLandscapeHome(
+    onLaunchGame: (Version?) -> Unit,
+    toAccountManageScreen: () -> Unit,
+    toVersionManageScreen: () -> Unit,
+    toVersionSettingsScreen: () -> Unit,
+) {
+    val account by AccountsManager.currentAccountFlow.collectAsStateWithLifecycle()
+    val refreshWardrobe by AccountsManager.refreshWardrobe.collectAsStateWithLifecycle()
+    val skinFile = remember(account, refreshWardrobe) {
+        account?.getSkinFile()?.takeIf { it.exists() }
+    }
+    val capeFile = remember(account, refreshWardrobe) {
+        account?.getCapeFile()?.takeIf { it.exists() }
+    }
+    val editing = CxdHomeEdit.editing
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    val t0 = System.currentTimeMillis()
+                    val up = withTimeoutOrNull(2000L) { waitForUpOrCancellation() }
+                    if (up == null && System.currentTimeMillis() - t0 >= 1900L && !CxdHomeEdit.editing) {
+                        CxdHomeEdit.editing = true
+                    }
+                }
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(340.dp)
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            BackgroundCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .cxdMovable("skin"),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {
+                SkinPreview3D(
+                    modifier = Modifier.fillMaxSize(),
+                    skinFile = skinFile,
+                    capeFile = capeFile,
+                    modelType = account?.skinModelType,
+                    interactionEnabled = false,
+                    azimuth = -35,
+                    refreshKey = listOf(account?.uniqueUUID, refreshWardrobe, skinFile?.lastModified() ?: 0L, capeFile?.lastModified() ?: 0L)
+                )
+            }
+
+            BackgroundCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .cxdMovable("account"),
+                shape = MaterialTheme.shapes.extraLarge,
+                onClick = { if (!editing) toAccountManageScreen() }
+            ) {
+                AccountAvatarRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    account = account,
+                )
+            }
+
+            BackgroundCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .cxdMovable("version"),
+                shape = MaterialTheme.shapes.extraLarge,
+            ) {
+                VersionsContent(
+                    modifier = Modifier.fillMaxWidth(),
+                    onLaunchGame = onLaunchGame,
+                    toVersionManageScreen = toVersionManageScreen,
+                    toVersionSettingsScreen = toVersionSettingsScreen,
+                )
+            }
+        }
+
+        if (editing) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                androidx.compose.material3.Button(onClick = { CxdHomeEdit.reset() }) {
+                    Text(text = "Reset")
+                }
+                androidx.compose.material3.Button(onClick = { CxdHomeEdit.editing = false }) {
+                    Text(text = "Done")
+                }
+            }
+        }
     }
 }
 """)
