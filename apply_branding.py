@@ -17,6 +17,7 @@ PHASE_SPLASH_GLASS   = True   # Wallpaper + glass on the first-run extract scree
 PHASE_MODRINTH       = True   # Default download platform = Modrinth
 PHASE_LITE           = True   # Lite: no live blur (baked into wallpaper), much smoother on weak phones
 PHASE_RELEASE_BUILD  = True   # Release (optimized) build instead of slow debug build; signed with the repo's debug key
+PHASE_NEW_HOME       = True   # NEW landscape home: two left bars + centered launch card (needs PORTRAIT + ROTATE phases)
 PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
 PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
 PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
@@ -322,6 +323,196 @@ if PHASE_LITE:
     assert "TransitionAnimationType.JELLY_BOUNCE)" in _t
     _t = _t.replace("TransitionAnimationType.JELLY_BOUNCE)", "TransitionAnimationType.SLICE_IN)")
     open(K + "/setting/AllSettings.kt", "w", encoding="utf-8").write(_t)
+
+if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
+    # ---- LauncherScreen: new landscape layout (card centered in the space right of the bars) ----
+    NEW_LAND = """            } else if (true) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = CXD_BARS_WIDTH),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ActionMenu(
+                        modifier = Modifier
+                            .width(360.dp)
+                            .fillMaxHeight()
+                            .padding(8.dp),
+                        isVisible = isVisible,
+                        isTaller = true,
+                        dockedSide = dockedSide,
+                        onLaunchGame = onLaunchGame,
+                        swapTargetValue = 0.dp,
+                        pickUpScale = { 1f },
+                        toAccountManageScreen = toAccountManageScreen,
+                        toVersionManageScreen = toVersionManageScreen,
+                        toVersionSettingsScreen = toVersionSettingsScreen
+                    )
+                }
+            } else {
+"""
+    patch(K + "/ui/screens/content/LauncherScreen.kt", [
+        ("import androidx.compose.foundation.layout.Row\n",
+         "import androidx.compose.foundation.layout.Row\nimport androidx.compose.foundation.layout.fillMaxHeight\n", 1),
+        ("            } else {\n            // 内容区域\n", NEW_LAND + "            // 内容区域\n", 1),
+    ])
+    with open(K + "/ui/screens/content/LauncherScreen.kt", "a", encoding="utf-8") as _f:
+        _f.write("\n\n/** CxdElite: total width reserved on the left for the two bars of the landscape home */\ninternal val CXD_BARS_WIDTH: androidx.compose.ui.unit.Dp = 150.dp\n")
+
+    # ---- MainScreen: hide the top bar on the landscape home, draw the two left bars instead ----
+    BARS_CALL = """                    submitError = submitError
+                )
+
+                if (cxdLandscapeHome) {
+                    CxdHomeBars(
+                        modifier = Modifier.align(Alignment.CenterStart),
+                        toAccounts = {
+                            screenBackStackModel.mainScreen.navigateTo(
+                                screenKey = NormalNavKey.AccountManager(com.movtery.zalithlauncher.ui.screens.content.FirstLoginMenu.NONE)
+                            )
+                        },
+                        toVersions = {
+                            screenBackStackModel.mainScreen.removeAndNavigateTo(
+                                remove = NestedNavKey.VersionSettings::class,
+                                screenKey = NormalNavKey.VersionsManager
+                            )
+                        },
+                        toDownload = { screenBackStackModel.navigateToDownload() },
+                        toSettings = {
+                            screenBackStackModel.mainScreen.removeAndNavigateTo(
+                                removes = screenBackStackModel.clearBeforeNavKeys,
+                                screenKey = screenBackStackModel.settingsScreen
+                            )
+                        },
+                        toMultiplayer = {
+                            screenBackStackModel.mainScreen.removeAndNavigateTo(
+                                removes = screenBackStackModel.clearBeforeNavKeys,
+                                screenKey = NormalNavKey.Multiplayer
+                            )
+                        },
+                        openFiles = {
+                            eventViewModel.sendEvent(
+                                EventViewModel.Event.OpenFileManager(
+                                    rootPath = PathManager.DIR_FILES_EXTERNAL.absolutePath
+                                )
+                            )
+                        }
+                    )
+                }
+
+                TaskMenu("""
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("    val inLauncherScreen = mainScreenKey == null || mainScreenKey is NormalNavKey.LauncherMain\n",
+         "    val inLauncherScreen = mainScreenKey == null || mainScreenKey is NormalNavKey.LauncherMain\n"
+         "    val cxdLandscapeHome = inLauncherScreen &&\n"
+         "        androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE\n", 1),
+        ("            TopBar(\n                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),",
+         "            if (!cxdLandscapeHome) TopBar(\n                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),", 1),
+        ("                    submitError = submitError\n                )\n\n                TaskMenu(", BARS_CALL, 1),
+    ])
+    with open(K + "/ui/screens/main/MainScreen.kt", "a", encoding="utf-8") as _f:
+        _f.write("""
+
+/** CxdElite: landscape home = two glass bars on the left (4 main buttons + 4 tools) with the launcher name under them */
+@Composable
+private fun CxdHomeBars(
+    modifier: Modifier = Modifier,
+    toAccounts: () -> Unit,
+    toVersions: () -> Unit,
+    toDownload: () -> Unit,
+    toSettings: () -> Unit,
+    toMultiplayer: () -> Unit,
+    openFiles: () -> Unit,
+) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val rotate: () -> Unit = {
+        var c: android.content.Context = ctx
+        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+        (c as? android.app.Activity)?.let { a ->
+            val toPortrait = a.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT
+            a.requestedOrientation = if (toPortrait) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            a.getSharedPreferences("cxd", 0).edit().putBoolean("portrait", toPortrait).apply()
+        }
+    }
+    val youtube: () -> Unit = {
+        runCatching {
+            ctx.startActivity(
+                android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://www.youtube.com/@hexablockyt-b1t")
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(com.movtery.zalithlauncher.ui.screens.content.CXD_BARS_WIDTH)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            BackgroundCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Column(modifier = Modifier.fillMaxSize().padding(vertical = 4.dp)) {
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_person_outlined), "Accounts", toAccounts)
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_list_alt_check_outlined), "Versions", toVersions)
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_download_2_filled), "Download", toDownload)
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_settings_filled), "Settings", toSettings)
+                }
+            }
+            BackgroundCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Column(modifier = Modifier.fillMaxSize().padding(vertical = 4.dp)) {
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_mobile_rotate_filled), "Rotate", rotate)
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_cxd_youtube), "YouTube", youtube)
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_folder_filled), "Files", openFiles)
+                    CxdBarItem(Modifier.weight(1f).fillMaxWidth(), painterResource(R.drawable.ic_group_filled), "Together", toMultiplayer)
+                }
+            }
+        }
+        Text(
+            modifier = Modifier.fillMaxWidth(),
+            text = BuildKeys.LAUNCHER_NAME,
+            maxLines = 2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp)
+        )
+    }
+}
+
+@Composable
+private fun CxdBarItem(
+    modifier: Modifier = Modifier,
+    painter: androidx.compose.ui.graphics.painter.Painter,
+    text: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.large)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            painter = painter,
+            contentDescription = text,
+            modifier = Modifier.size(22.dp)
+        )
+        Text(
+            text = text,
+            maxLines = 1,
+            fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)
+        )
+    }
+}
+""")
 
 # ---- logo ----
 from PIL import Image, ImageDraw, ImageChops
