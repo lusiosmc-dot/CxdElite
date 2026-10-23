@@ -20,6 +20,7 @@ PHASE_RELEASE_BUILD  = True   # Release (optimized) build instead of slow debug 
 PHASE_NEW_HOME       = True   # NEW landscape home: two left bars + centered launch card (needs PORTRAIT + ROTATE phases)
 PHASE_INTRO          = True   # 3-second animated loading screen when the launcher opens
 PHASE_GLASS_ALL      = True   # glass top bar on every page + glass popups/dialogs
+PHASE_PORTRAIT_FIXES = True   # Portrait: 2-row top bar (title row + buttons row), no skin on Account page
 PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
 PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
 PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
@@ -1037,7 +1038,7 @@ if PHASE_GLASS_ALL:
         ("                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),",
          "                modifier = Modifier\n                    .fillMaxWidth()\n"
          "                    .padding(horizontal = 8.dp, vertical = 4.dp)\n"
-         "                    .height(44.dp)\n"
+         "                    .height(if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) 96.dp else 44.dp)\n"
          "                    .clip(RoundedCornerShape(22.dp))\n"
          "                    .background(Color.White.copy(alpha = 0.07f))\n"
          "                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))\n"
@@ -1231,6 +1232,82 @@ fun CxdIntro(onFinished: () -> Unit) {
          "        //处理外部导入", 1),
     ])
 
+if PHASE_PORTRAIT_FIXES and PHASE_GLASS_ALL:
+    # ---- two-row top bar in portrait: row 1 = back, home, title / row 2 = all the buttons spread evenly ----
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("            val (backCenter, title, endButtons) = createRefs()\n",
+         "            val (backCenter, title, endButtons) = createRefs()\n"
+         "            val cxdTwoRows = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==\n"
+         "                android.content.res.Configuration.ORIENTATION_PORTRAIT\n"
+         "            val cxdMid = createGuidelineFromTop(0.5f)\n", 1),
+        ("                    .constrainAs(backCenter) {\n                        start.linkTo(parent.start)\n                        top.linkTo(parent.top)\n                        bottom.linkTo(parent.bottom)\n                    }\n",
+         "                    .constrainAs(backCenter) {\n                        start.linkTo(parent.start)\n                        top.linkTo(parent.top)\n"
+         "                        bottom.linkTo(if (cxdTwoRows) cxdMid else parent.bottom)\n"
+         "                        if (cxdTwoRows) height = androidx.constraintlayout.compose.Dimension.fillToConstraints\n"
+         "                    }\n", 1),
+        ("                modifier = Modifier.constrainAs(title) {\n                    centerVerticallyTo(parent)\n                    start.linkTo(backCenter.end, margin = 16.dp)\n                },\n",
+         "                modifier = Modifier.constrainAs(title) {\n"
+         "                    if (cxdTwoRows) {\n                        top.linkTo(parent.top)\n                        bottom.linkTo(cxdMid)\n                    } else {\n                        centerVerticallyTo(parent)\n                    }\n"
+         "                    start.linkTo(backCenter.end, margin = 16.dp)\n                },\n", 1),
+        ("                    .constrainAs(endButtons) {\n                        top.linkTo(parent.top)\n                        bottom.linkTo(parent.bottom)\n                        end.linkTo(parent.end, margin = 12.dp)\n                    },\n                verticalAlignment = Alignment.CenterVertically,\n                horizontalArrangement = Arrangement.spacedBy(8.dp)\n",
+         "                    .constrainAs(endButtons) {\n"
+         "                        if (cxdTwoRows) {\n"
+         "                            top.linkTo(cxdMid)\n"
+         "                            bottom.linkTo(parent.bottom)\n"
+         "                            start.linkTo(parent.start, margin = 4.dp)\n"
+         "                            end.linkTo(parent.end, margin = 4.dp)\n"
+         "                            width = androidx.constraintlayout.compose.Dimension.fillToConstraints\n"
+         "                            height = androidx.constraintlayout.compose.Dimension.fillToConstraints\n"
+         "                        } else {\n"
+         "                            top.linkTo(parent.top)\n"
+         "                            bottom.linkTo(parent.bottom)\n"
+         "                            end.linkTo(parent.end, margin = 12.dp)\n"
+         "                        }\n"
+         "                    },\n"
+         "                verticalAlignment = Alignment.CenterVertically,\n"
+         "                horizontalArrangement = if (cxdTwoRows) Arrangement.SpaceEvenly else Arrangement.spacedBy(8.dp)\n", 1),
+    ])
+
+if PHASE_PORTRAIT_FIXES:
+    # ---- Account page: no skin preview in portrait, "Add account" button on top, list below ----
+    patch(K + "/ui/screens/content/AccountManageScreen.kt", [
+        ("    Row(\n        modifier = Modifier.fillMaxSize()\n    ) {\n        ActionsLayout(\n",
+         "    val cxdPortraitAcc = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==\n"
+         "        android.content.res.Configuration.ORIENTATION_PORTRAIT\n"
+         "    Row(\n        modifier = Modifier.fillMaxSize()\n    ) {\n"
+         "        if (cxdPortraitAcc) {\n"
+         "            Column(modifier = Modifier.fillMaxSize()) {\n"
+         "                ScalingActionButton(\n"
+         "                    modifier = Modifier\n"
+         "                        .fillMaxWidth()\n"
+         "                        .padding(start = 12.dp, end = 12.dp, top = 12.dp),\n"
+         "                    onClick = {\n"
+         "                        actions.onIntent(AccountManageIntent.UpdateLoginMenuOp(LoginMenuOperation.Login))\n"
+         "                    }\n"
+         "                ) {\n"
+         "                    MarqueeText(text = stringResource(R.string.account_add_new_account))\n"
+         "                }\n"
+         "                AccountsLayout(\n"
+         "                    isVisible = isVisible,\n"
+         "                    modifier = Modifier\n"
+         "                        .weight(1f)\n"
+         "                        .fillMaxWidth()\n"
+         "                        .padding(all = 12.dp),\n"
+         "                    accounts = profileUiState.accounts,\n"
+         "                    currentAccount = profileUiState.currentAccount,\n"
+         "                    accountOperation = operationUiState.accountOp,\n"
+         "                    accountSkinOperation = operationUiState.accountSkinOp,\n"
+         "                    accountSkinDialogState = operationUiState.accountSkinDialogState,\n"
+         "                    accountCapes = profileUiState.accountCapeOpMap,\n"
+         "                    actions = actions\n"
+         "                )\n"
+         "            }\n"
+         "        } else {\n"
+         "        ActionsLayout(\n", 1),
+        ("            accountCapes = profileUiState.accountCapeOpMap,\n            actions = actions\n        )\n    }\n\n    LoginMenuOperation(",
+         "            accountCapes = profileUiState.accountCapeOpMap,\n            actions = actions\n        )\n        }\n    }\n\n    LoginMenuOperation(", 1),
+    ])
+
 # ---- logo ----
 from PIL import Image, ImageDraw, ImageChops
 import math, sys
@@ -1357,4 +1434,4 @@ for _root, _dirs, _files in os.walk(M + "/java"):
         if _changed:
             open(_p, "w", encoding="utf-8").write("\n".join(_out))
 
-print("CxdElite branding applied.")
+print("CxdElite branding applied. [script v2: duplicate-import fix included]")
