@@ -327,12 +327,21 @@ if PHASE_LITE:
 if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
     # ---- LauncherScreen: new landscape layout (card centered in the space right of the bars) ----
     NEW_LAND = """            } else if (true) {
-                CxdLandscapeHome(
-                    onLaunchGame = onLaunchGame,
-                    toAccountManageScreen = toAccountManageScreen,
-                    toVersionManageScreen = toVersionManageScreen,
-                    toVersionSettingsScreen = toVersionSettingsScreen
-                )
+                if (maxWidth < maxHeight) {
+                    CxdPortraitHome(
+                        onLaunchGame = onLaunchGame,
+                        toAccountManageScreen = toAccountManageScreen,
+                        toVersionManageScreen = toVersionManageScreen,
+                        toVersionSettingsScreen = toVersionSettingsScreen
+                    )
+                } else {
+                    CxdLandscapeHome(
+                        onLaunchGame = onLaunchGame,
+                        toAccountManageScreen = toAccountManageScreen,
+                        toVersionManageScreen = toVersionManageScreen,
+                        toVersionSettingsScreen = toVersionSettingsScreen
+                    )
+                }
             } else {
 """
     patch(K + "/ui/screens/content/LauncherScreen.kt", [
@@ -341,6 +350,8 @@ if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
          "import androidx.compose.foundation.gestures.awaitEachGesture\nimport androidx.compose.foundation.gestures.awaitFirstDown\n"
          "import androidx.compose.foundation.gestures.waitForUpOrCancellation\nimport androidx.compose.ui.input.pointer.pointerInput\n", 1),
         ("            } else {\n            // 内容区域\n", NEW_LAND + "            // 内容区域\n", 1),
+        ("            if (maxWidth < maxHeight) {\n                CompositionLocalProvider(\n",
+         "            if (false) {\n                CompositionLocalProvider(\n", 1),
     ])
     with open(K + "/ui/screens/content/LauncherScreen.kt", "a", encoding="utf-8") as _f:
         _f.write("\n\n/** CxdElite: total width reserved on the left for the two bars of the landscape home */\ninternal val CXD_BARS_WIDTH: androidx.compose.ui.unit.Dp = 150.dp\n")
@@ -349,41 +360,59 @@ if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
     BARS_CALL = """                    submitError = submitError
                 )
 
-                if (cxdLandscapeHome) {
-                    CxdHomeBars(
-                        modifier = Modifier.align(Alignment.CenterStart),
-                        toAccounts = {
-                            screenBackStackModel.mainScreen.navigateTo(
-                                screenKey = NormalNavKey.AccountManager(com.movtery.zalithlauncher.ui.screens.content.FirstLoginMenu.NONE)
+                if (inLauncherScreen) {
+                    val cxdToAccounts: () -> Unit = {
+                        screenBackStackModel.mainScreen.navigateTo(
+                            screenKey = NormalNavKey.AccountManager(com.movtery.zalithlauncher.ui.screens.content.FirstLoginMenu.NONE)
+                        )
+                    }
+                    val cxdToVersions: () -> Unit = {
+                        screenBackStackModel.mainScreen.removeAndNavigateTo(
+                            remove = NestedNavKey.VersionSettings::class,
+                            screenKey = NormalNavKey.VersionsManager
+                        )
+                    }
+                    val cxdToDownload: () -> Unit = { screenBackStackModel.navigateToDownload() }
+                    val cxdToSettings: () -> Unit = {
+                        screenBackStackModel.mainScreen.removeAndNavigateTo(
+                            removes = screenBackStackModel.clearBeforeNavKeys,
+                            screenKey = screenBackStackModel.settingsScreen
+                        )
+                    }
+                    val cxdToMultiplayer: () -> Unit = {
+                        screenBackStackModel.mainScreen.removeAndNavigateTo(
+                            removes = screenBackStackModel.clearBeforeNavKeys,
+                            screenKey = NormalNavKey.Multiplayer
+                        )
+                    }
+                    val cxdOpenFiles: () -> Unit = {
+                        eventViewModel.sendEvent(
+                            EventViewModel.Event.OpenFileManager(
+                                rootPath = PathManager.DIR_FILES_EXTERNAL.absolutePath
                             )
-                        },
-                        toVersions = {
-                            screenBackStackModel.mainScreen.removeAndNavigateTo(
-                                remove = NestedNavKey.VersionSettings::class,
-                                screenKey = NormalNavKey.VersionsManager
-                            )
-                        },
-                        toDownload = { screenBackStackModel.navigateToDownload() },
-                        toSettings = {
-                            screenBackStackModel.mainScreen.removeAndNavigateTo(
-                                removes = screenBackStackModel.clearBeforeNavKeys,
-                                screenKey = screenBackStackModel.settingsScreen
-                            )
-                        },
-                        toMultiplayer = {
-                            screenBackStackModel.mainScreen.removeAndNavigateTo(
-                                removes = screenBackStackModel.clearBeforeNavKeys,
-                                screenKey = NormalNavKey.Multiplayer
-                            )
-                        },
-                        openFiles = {
-                            eventViewModel.sendEvent(
-                                EventViewModel.Event.OpenFileManager(
-                                    rootPath = PathManager.DIR_FILES_EXTERNAL.absolutePath
-                                )
-                            )
-                        }
-                    )
+                        )
+                    }
+                    if (cxdLandscapeHome) {
+                        CxdHomeBars(
+                            modifier = Modifier.align(Alignment.CenterStart),
+                            toAccounts = cxdToAccounts,
+                            toVersions = cxdToVersions,
+                            toDownload = cxdToDownload,
+                            toSettings = cxdToSettings,
+                            toMultiplayer = cxdToMultiplayer,
+                            openFiles = cxdOpenFiles
+                        )
+                    } else {
+                        CxdHomeBarsPortrait(
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            toAccounts = cxdToAccounts,
+                            toVersions = cxdToVersions,
+                            toDownload = cxdToDownload,
+                            toSettings = cxdToSettings,
+                            toMultiplayer = cxdToMultiplayer,
+                            openFiles = cxdOpenFiles
+                        )
+                    }
                 }
 
                 TaskMenu("""
@@ -393,7 +422,7 @@ if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
          "    val cxdLandscapeHome = inLauncherScreen &&\n"
          "        androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE\n", 1),
         ("            TopBar(\n                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),",
-         "            if (!cxdLandscapeHome) TopBar(\n                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),", 1),
+         "            if (!inLauncherScreen) TopBar(\n                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),", 1),
         ("                    submitError = submitError\n                )\n\n                TaskMenu(", BARS_CALL, 1),
     ])
     with open(K + "/ui/screens/main/MainScreen.kt", "a", encoding="utf-8") as _f:
@@ -520,6 +549,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -527,19 +557,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** CxdElite: edit mode + saved positions for the landscape home items (skin box, account card, version card, two bars) */
+/** CxdElite: edit mode + saved positions for the home items. Items never overlap, stay inside the screen and snap on release. */
 object CxdHomeEdit {
     var editing by mutableStateOf(false)
+    var density: Float = 2f
     private val offsets = mutableStateMapOf<String, Offset>()
+    private val bounds = HashMap<String, Rect>()
     private var prefs: SharedPreferences? = null
 
     fun init(context: Context) {
@@ -556,8 +594,82 @@ object CxdHomeEdit {
 
     fun offsetOf(key: String): Offset = offsets[key] ?: Offset.Zero
 
-    fun move(key: String, delta: Offset) {
-        offsets[key] = offsetOf(key) + delta
+    fun setBounds(key: String, r: Rect) {
+        bounds[key] = r
+    }
+
+    fun clearBounds(key: String) {
+        bounds.remove(key)
+    }
+
+    private fun overlapsOthers(key: String, r: Rect): Boolean {
+        for ((k, o) in bounds) {
+            if (k == key) continue
+            if (r.left < o.right && r.right > o.left && r.top < o.bottom && r.bottom > o.top) return true
+        }
+        return false
+    }
+
+    private fun inside(r: Rect, w: Float, h: Float): Boolean =
+        r.left >= 0f && r.top >= 0f && r.right <= w && r.bottom <= h
+
+    private fun ok(key: String, r: Rect, w: Float, h: Float): Boolean =
+        inside(r, w, h) && !overlapsOthers(key, r)
+
+    private fun apply(key: String, d: Offset, r: Rect) {
+        offsets[key] = offsetOf(key) + d
+        bounds[key] = r.translate(d)
+    }
+
+    /** drag step: keep inside the screen, never overlap another item (slides along the other item if possible) */
+    fun move(key: String, delta: Offset, w: Float, h: Float) {
+        val r = bounds[key]
+        if (r == null) {
+            offsets[key] = offsetOf(key) + delta
+            return
+        }
+        var d = delta
+        val nr = r.translate(d)
+        if (nr.left < 0f) d = Offset(d.x - nr.left, d.y)
+        if (nr.right > w) d = Offset(d.x - (nr.right - w), d.y)
+        if (nr.top < 0f) d = Offset(d.x, d.y - nr.top)
+        if (nr.bottom > h) d = Offset(d.x, d.y - (nr.bottom - h))
+        val tries = listOf(d, Offset(d.x, 0f), Offset(0f, d.y))
+        for (t in tries) {
+            if (t == Offset.Zero) continue
+            if (!overlapsOthers(key, r.translate(t))) {
+                apply(key, t, r)
+                return
+            }
+        }
+    }
+
+    /** on release: snap to screen edges / neighbours when close, then save */
+    fun snap(key: String, w: Float, h: Float) {
+        val r = bounds[key]
+        if (r != null) {
+            val th = 28f * density
+            val margin = 8f * density
+            val gap = 10f * density
+            val xs = arrayListOf(margin, w - margin - r.width)
+            val ys = arrayListOf(margin, h - margin - r.height)
+            for ((k, o) in bounds) {
+                if (k == key) continue
+                xs.addAll(listOf(o.left, o.right - r.width, o.right + gap, o.left - gap - r.width))
+                ys.addAll(listOf(o.top, o.bottom - r.height, o.bottom + gap, o.top - gap - r.height))
+            }
+            val dx = xs.map { it - r.left }.filter { abs(it) <= th }.minByOrNull { abs(it) } ?: 0f
+            val dy = ys.map { it - r.top }.filter { abs(it) <= th }.minByOrNull { abs(it) } ?: 0f
+            val both = Offset(dx, dy)
+            if (both != Offset.Zero && ok(key, r.translate(both), w, h)) {
+                apply(key, both, r)
+            } else if (dx != 0f && ok(key, r.translate(Offset(dx, 0f)), w, h)) {
+                apply(key, Offset(dx, 0f), r)
+            } else if (dy != 0f && ok(key, r.translate(Offset(0f, dy)), w, h)) {
+                apply(key, Offset(0f, dy), r)
+            }
+        }
+        save(key)
     }
 
     fun save(key: String) {
@@ -575,12 +687,20 @@ object CxdHomeEdit {
 @Composable
 fun Modifier.cxdMovable(key: String): Modifier {
     val ctx = LocalContext.current
+    val view = LocalView.current
+    val density = LocalDensity.current.density
     remember(ctx) { CxdHomeEdit.init(ctx) }
-    val editing = CxdHomeEdit.editing
-    val base = this.offset {
-        val o = CxdHomeEdit.offsetOf(key)
-        IntOffset(o.x.roundToInt(), o.y.roundToInt())
+    CxdHomeEdit.density = density
+    DisposableEffect(key) {
+        onDispose { CxdHomeEdit.clearBounds(key) }
     }
+    val editing = CxdHomeEdit.editing
+    val base = this
+        .offset {
+            val o = CxdHomeEdit.offsetOf(key)
+            IntOffset(o.x.roundToInt(), o.y.roundToInt())
+        }
+        .onGloballyPositioned { CxdHomeEdit.setBounds(key, it.boundsInRoot()) }
     if (!editing) return base
     return base
         .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
@@ -593,11 +713,11 @@ fun Modifier.cxdMovable(key: String): Modifier {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     val change = event.changes.firstOrNull { it.id == id } ?: break
                     if (!change.pressed) {
-                        CxdHomeEdit.save(key)
+                        CxdHomeEdit.snap(key, view.width.toFloat(), view.height.toFloat())
                         break
                     }
                     val d = change.positionChange()
-                    if (d != Offset.Zero) CxdHomeEdit.move(key, d)
+                    if (d != Offset.Zero) CxdHomeEdit.move(key, d, view.width.toFloat(), view.height.toFloat())
                     change.consume()
                 }
             }
@@ -683,6 +803,193 @@ private fun CxdLandscapeHome(
                 modifier = Modifier
                     .fillMaxWidth()
                     .cxdMovable("version"),
+                shape = MaterialTheme.shapes.extraLarge,
+            ) {
+                VersionsContent(
+                    modifier = Modifier.fillMaxWidth(),
+                    onLaunchGame = onLaunchGame,
+                    toVersionManageScreen = toVersionManageScreen,
+                    toVersionSettingsScreen = toVersionSettingsScreen,
+                )
+            }
+        }
+
+        if (editing) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                androidx.compose.material3.Button(onClick = { CxdHomeEdit.reset() }) {
+                    Text(text = "Reset")
+                }
+                androidx.compose.material3.Button(onClick = { CxdHomeEdit.editing = false }) {
+                    Text(text = "Done")
+                }
+            }
+        }
+    }
+}
+""")
+
+if PHASE_NEW_HOME and PHASE_PORTRAIT and PHASE_ROTATE_BUTTON:
+    with open(K + "/ui/screens/main/MainScreen.kt", "a", encoding="utf-8") as _f:
+        _f.write("""
+
+/** CxdElite: portrait home = two glass bars at the bottom (4 main buttons + 4 tools) with the launcher name under them */
+@Composable
+private fun CxdHomeBarsPortrait(
+    modifier: Modifier = Modifier,
+    toAccounts: () -> Unit,
+    toVersions: () -> Unit,
+    toDownload: () -> Unit,
+    toSettings: () -> Unit,
+    toMultiplayer: () -> Unit,
+    openFiles: () -> Unit,
+) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val rotate: () -> Unit = {
+        var c: android.content.Context = ctx
+        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+        (c as? android.app.Activity)?.let { a ->
+            val toPortrait = a.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT
+            a.requestedOrientation = if (toPortrait) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            a.getSharedPreferences("cxd", 0).edit().putBoolean("portrait", toPortrait).apply()
+        }
+    }
+    val youtube: () -> Unit = {
+        runCatching {
+            ctx.startActivity(
+                android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://www.youtube.com/@hexablockyt-b1t")
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        BackgroundCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .cxdMovable("p_bar1")
+        ) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_person_outlined), "Accounts", toAccounts)
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_list_alt_check_outlined), "Versions", toVersions)
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_download_2_filled), "Download", toDownload)
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_settings_filled), "Settings", toSettings)
+            }
+        }
+        BackgroundCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .cxdMovable("p_bar2")
+        ) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_mobile_rotate_filled), "Rotate", rotate)
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_cxd_youtube), "YouTube", youtube)
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_folder_filled), "Files", openFiles)
+                CxdBarItem(Modifier.weight(1f).fillMaxHeight(), painterResource(R.drawable.ic_group_filled), "Together", toMultiplayer)
+            }
+        }
+        Text(
+            modifier = Modifier.fillMaxWidth(),
+            text = BuildKeys.LAUNCHER_NAME,
+            maxLines = 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp)
+        )
+    }
+}
+""")
+    with open(K + "/ui/screens/content/LauncherScreen.kt", "a", encoding="utf-8") as _f:
+        _f.write("""
+
+/** space kept free at the bottom of the portrait home for the two bars + name label */
+internal val CXD_PORTRAIT_BARS_HEIGHT: androidx.compose.ui.unit.Dp = 168.dp
+
+/** CxdElite: portrait home. Skin box on top, then account card, then version card; the two bars sit at the bottom. */
+@Composable
+private fun CxdPortraitHome(
+    onLaunchGame: (Version?) -> Unit,
+    toAccountManageScreen: () -> Unit,
+    toVersionManageScreen: () -> Unit,
+    toVersionSettingsScreen: () -> Unit,
+) {
+    val account by AccountsManager.currentAccountFlow.collectAsStateWithLifecycle()
+    val refreshWardrobe by AccountsManager.refreshWardrobe.collectAsStateWithLifecycle()
+    val skinFile = remember(account, refreshWardrobe) {
+        account?.getSkinFile()?.takeIf { it.exists() }
+    }
+    val capeFile = remember(account, refreshWardrobe) {
+        account?.getCapeFile()?.takeIf { it.exists() }
+    }
+    val editing = CxdHomeEdit.editing
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    val t0 = System.currentTimeMillis()
+                    val up = withTimeoutOrNull(2000L) { waitForUpOrCancellation() }
+                    if (up == null && System.currentTimeMillis() - t0 >= 1900L && !CxdHomeEdit.editing) {
+                        CxdHomeEdit.editing = true
+                    }
+                }
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = CXD_PORTRAIT_BARS_HEIGHT),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            BackgroundCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .cxdMovable("p_skin"),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {
+                SkinPreview3D(
+                    modifier = Modifier.fillMaxSize(),
+                    skinFile = skinFile,
+                    capeFile = capeFile,
+                    modelType = account?.skinModelType,
+                    interactionEnabled = false,
+                    azimuth = -35,
+                    refreshKey = listOf(account?.uniqueUUID, refreshWardrobe, skinFile?.lastModified() ?: 0L, capeFile?.lastModified() ?: 0L)
+                )
+            }
+
+            BackgroundCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .cxdMovable("p_account"),
+                shape = MaterialTheme.shapes.extraLarge,
+                onClick = { if (!editing) toAccountManageScreen() }
+            ) {
+                AccountAvatarRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    account = account,
+                )
+            }
+
+            BackgroundCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .cxdMovable("p_version"),
                 shape = MaterialTheme.shapes.extraLarge,
             ) {
                 VersionsContent(
