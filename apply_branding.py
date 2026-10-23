@@ -1339,4 +1339,22 @@ else:
     render(1556, "fg", 1.45).crop((0, 0, 1556, 1556)).save(R + "/drawable/img_launcher.png")
     open(R + "/values/ic_launcher_background.xml", "w").write(
         '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0B1020</color>\n</resources>\n')
+# ---- safety: remove duplicate imports (Kotlin refuses the same class imported twice) ----
+for _root, _dirs, _files in os.walk(M + "/java"):
+    for _fn in _files:
+        if not _fn.endswith(".kt"):
+            continue
+        _p = os.path.join(_root, _fn)
+        _lines = open(_p, encoding="utf-8").read().split("\n")
+        _seen, _out, _changed = set(), [], False
+        for _l in _lines:
+            if _l.startswith("import "):
+                if _l.strip() in _seen:
+                    _changed = True
+                    continue
+                _seen.add(_l.strip())
+            _out.append(_l)
+        if _changed:
+            open(_p, "w", encoding="utf-8").write("\n".join(_out))
+
 print("CxdElite branding applied.")
