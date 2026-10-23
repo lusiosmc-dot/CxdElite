@@ -18,6 +18,8 @@ PHASE_MODRINTH       = True   # Default download platform = Modrinth
 PHASE_LITE           = True   # Lite: no live blur (baked into wallpaper), much smoother on weak phones
 PHASE_RELEASE_BUILD  = True   # Release (optimized) build instead of slow debug build; signed with the repo's debug key
 PHASE_NEW_HOME       = True   # NEW landscape home: two left bars + centered launch card (needs PORTRAIT + ROTATE phases)
+PHASE_INTRO          = True   # 3-second animated loading screen when the launcher opens
+PHASE_GLASS_ALL      = True   # glass top bar on every page + glass popups/dialogs
 PORTRAIT_SCALE       = 0.70   # smaller = more room (layout), 1.0 = normal. Try 0.6 to 0.8
 PORTRAIT_TEXT        = 0.95   # text size in portrait relative to normal
 PORTRAIT_TOP_GAP     = 28     # dp gap at the top of portrait screens
@@ -915,7 +917,7 @@ private fun CxdHomeBarsPortrait(
         _f.write("""
 
 /** space kept free at the bottom of the portrait home for the two bars + name label */
-internal val CXD_PORTRAIT_BARS_HEIGHT: androidx.compose.ui.unit.Dp = 168.dp
+internal val CXD_PORTRAIT_BARS_HEIGHT: androidx.compose.ui.unit.Dp = 192.dp
 
 /** CxdElite: portrait home. Skin box on top, then account card, then version card; the two bars sit at the bottom. */
 @Composable
@@ -1019,6 +1021,215 @@ private fun CxdPortraitHome(
     }
 }
 """)
+
+if PHASE_GLASS_ALL:
+    # popups / dialogs: glass container + thin border
+    _d = open(K + "/ui/components/Dialogs.kt", encoding="utf-8").read()
+    assert _d.count("color = cardColor(false),") == 4 and _d.count("\n    AlertDialog(\n") == 3
+    _d = _d.replace("color = cardColor(false),",
+                    "color = cardColor(false).copy(alpha = 0.88f),\n                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),")
+    _d = _d.replace("\n    AlertDialog(\n", "\n    AlertDialog(\n        containerColor = cardColor(false).copy(alpha = 0.88f),\n")
+    _d = _d.replace("import androidx.compose.ui.window.DialogProperties\n",
+                    "import androidx.compose.ui.window.DialogProperties\nimport androidx.compose.foundation.BorderStroke\nimport androidx.compose.ui.graphics.Color\n", 1)
+    open(K + "/ui/components/Dialogs.kt", "w", encoding="utf-8").write(_d)
+    # top bar of every page = glass pill
+    patch(K + "/ui/screens/main/MainScreen.kt", [
+        ("                modifier = Modifier\n                    .fillMaxWidth()\n                    .height(40.dp),",
+         "                modifier = Modifier\n                    .fillMaxWidth()\n"
+         "                    .padding(horizontal = 8.dp, vertical = 4.dp)\n"
+         "                    .height(44.dp)\n"
+         "                    .clip(RoundedCornerShape(22.dp))\n"
+         "                    .background(Color.White.copy(alpha = 0.07f))\n"
+         "                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))\n"
+         "                    .padding(horizontal = 6.dp),", 1),
+        ("import androidx.compose.ui.unit.dp\n",
+         "import androidx.compose.ui.unit.dp\nimport androidx.compose.foundation.background\nimport androidx.compose.foundation.border\n"
+         "import androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.ui.graphics.Color\n", 1),
+    ])
+
+if PHASE_INTRO:
+    with open(K + "/ui/screens/content/CxdIntro.kt", "w", encoding="utf-8") as _f:
+        _f.write("""package com.movtery.zalithlauncher.ui.screens.content
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.movtery.zalithlauncher.BuildKeys
+import com.movtery.zalithlauncher.R
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/** CxdElite: the intro plays only once per app process */
+object CxdIntroState {
+    var shown: Boolean = false
+}
+
+/** CxdElite: ~3 second loading animation (logo pops in, ring spins, progress bar fills, then fades out) */
+@Composable
+fun CxdIntro(onFinished: () -> Unit) {
+    val logoScale = remember { Animatable(0.6f) }
+    val logoAlpha = remember { Animatable(0f) }
+    val textAlpha = remember { Animatable(0f) }
+    val progress = remember { Animatable(0f) }
+    val exit = remember { Animatable(1f) }
+    val infinite = rememberInfiniteTransition(label = "cxdIntro")
+    val ringAngle by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
+        label = "ring"
+    )
+
+    LaunchedEffect(Unit) {
+        launch { logoAlpha.animateTo(1f, tween(500)) }
+        launch { logoScale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 140f)) }
+        launch {
+            delay(700)
+            textAlpha.animateTo(1f, tween(600))
+        }
+        launch { progress.animateTo(1f, tween(2600, easing = FastOutSlowInEasing)) }
+        delay(2600)
+        exit.animateTo(0f, tween(400))
+        onFinished()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = exit.value }
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF04060B), Color(0xFF121826), Color(0xFF04060B))
+                )
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier.size(200.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = logoAlpha.value }
+                ) {
+                    rotate(ringAngle) {
+                        drawCircle(
+                            brush = Brush.sweepGradient(
+                                listOf(Color.Transparent, Color(0xFF00E5FF), Color(0xFF7C4DFF), Color.Transparent)
+                            ),
+                            radius = size.minDimension / 2f - 4.dp.toPx(),
+                            style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
+                }
+                Image(
+                    painter = painterResource(R.drawable.img_launcher),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(132.dp)
+                        .graphicsLayer {
+                            scaleX = logoScale.value
+                            scaleY = logoScale.value
+                            alpha = logoAlpha.value
+                        }
+                        .clip(RoundedCornerShape(28.dp))
+                )
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = BuildKeys.LAUNCHER_NAME,
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.graphicsLayer { alpha = textAlpha.value }
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Box(
+                modifier = Modifier
+                    .width(180.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progress.value)
+                        .background(Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFF7C4DFF))))
+                )
+            }
+        }
+    }
+}
+""")
+    patch(K + "/ui/activities/MainActivity.kt", [
+        ("        //处理外部导入",
+         "        //CxdElite: 3 second loading screen, shown once per app start (overlay above everything)\n"
+         "        if (!com.movtery.zalithlauncher.ui.screens.content.CxdIntroState.shown) {\n"
+         "            com.movtery.zalithlauncher.ui.screens.content.CxdIntroState.shown = true\n"
+         "            window.decorView.post {\n"
+         "                val introView = androidx.compose.ui.platform.ComposeView(this)\n"
+         "                introView.setContent {\n"
+         "                    com.movtery.zalithlauncher.ui.screens.content.CxdIntro(\n"
+         "                        onFinished = { (introView.parent as? android.view.ViewGroup)?.removeView(introView) }\n"
+         "                    )\n"
+         "                }\n"
+         "                addContentView(\n"
+         "                    introView,\n"
+         "                    android.view.ViewGroup.LayoutParams(\n"
+         "                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,\n"
+         "                        android.view.ViewGroup.LayoutParams.MATCH_PARENT\n"
+         "                    )\n"
+         "                )\n"
+         "            }\n"
+         "        }\n"
+         "        //处理外部导入", 1),
+    ])
 
 # ---- logo ----
 from PIL import Image, ImageDraw, ImageChops
